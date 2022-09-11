@@ -1,2 +1,2 @@
 # MTCacheData
-Data from experiments using CacheLib as a block cache to replay real world traces. 
+Experiment data management and analysis for outputs from block trace replay on CacheBench. 

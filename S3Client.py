@@ -1,25 +1,24 @@
 import boto3 
-import logging 
 import pathlib 
+import logging
 from botocore.exceptions import ClientError
 
+
 class S3Client:
-    def __init__(self, access_key, secret_key):
+    def __init__(self, ACCESS_KEY, SECRET_KEY):
         self.s3 = boto3.client("s3",
-                                    aws_access_key_id=access_key,
-                                    aws_secret_access_key=secret_key)
+                    aws_access_key_id=ACCESS_KEY,
+                    aws_secret_access_key=SECRET_KEY)
         self.bucket_name = "mtcachedata"
         self.key_prefix = "output/"
         self.data_dir = pathlib.Path("./data")
-        self.data = self.get_keys()
         assert self.data_dir.exists()
 
 
     def get_keys(self):
-        # get a list of relevant keys in S3 bucket 
-        list_api_return = self.s3.list_objects_v2(Bucket=self.bucket_name, Prefix=self.key_prefix)
-        return list_api_return 
-        
+        response = self.s3.list_objects_v2(Bucket=self.bucket_name, Prefix=self.key_prefix)
+        return response["Contents"]
+
 
     def get_key_count(self, key):
         return self.s3.list_objects_v2(Bucket=self.bucket_name, Prefix=key)['KeyCount']
