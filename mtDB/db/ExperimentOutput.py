@@ -1,13 +1,14 @@
-""" The class reads a experiment output file and loads the 
-    metrics for analysis. 
-"""
-
 import pathlib 
 import numpy as np 
 
+""" The class reads a experiment output file and loads the 
+    metrics for analysis. """
 class ExperimentOutput:
     def __init__(self, experiment_output_path):
+        self._output_path = pathlib.Path(experiment_output_path)
         self.stat = {}
+
+        # cache parameters 
         self.nvm_cache_size_mb = 0 
         self.ram_cache_size_mb = 0 
         self.ram_alloc_size_byte = 0
@@ -15,9 +16,11 @@ class ExperimentOutput:
         self.input_queue_size = 0
         self.processor_thread_count = 0 
         self.iat_scale_factor = 0 
+
+        # flag indicating whether the output is complete 
         self.full_output = False 
 
-        self._output_path = pathlib.Path(experiment_output_path)
+        # read the file and load metrics 
         self._load()
 
 
@@ -27,10 +30,14 @@ class ExperimentOutput:
             while line:
                 line = line.rstrip()
                 split_line = line.split("=")
-                if len(split_line) == 2:
+                # a JSON string cannot have the '=' character without it being in a string with a quote '"'
+                # in case there is a JSON property with an '=' in it 
+                if len(split_line) == 2 and '"' not in line:
+                    # these are performance metrics from CacheBench with format (*metric_name*=*metric_value*)
                     metric_name = split_line[0]
                     self.stat[metric_name] = float(split_line[1]) 
                 else:
+                    # these are configuration parameters stored as JSON string in the output file 
                     if "nvmCacheSizeMB" in line:
                         split_line = line.split(":")
                         self.nvm_cache_size_mb = int(split_line[1].replace(",", ""))
@@ -59,18 +66,23 @@ class ExperimentOutput:
                         self.iat_scale_factor = int(split_line[1].replace(",", ""))
 
                 line = f.readline()
-        
-        if self.base_sanity_check():
-            self.full_output = True
+            
+            if self.input_queue_size == 0 or self.iat_scale_factor == 0 or self.processor_thread_count == 0:
+                raise ValueError("Some cache parameter missing from file {}".format(self._output_path))
 
+        # store configuration parameters 
+        self.stat["inputQueueSize"] = self.input_queue_size
+        self.stat["processorThreadCount"] = self.processor_thread_count
+        self.stat["scaleIAT"] = self.iat_scale_factor 
         self.stat["cacheSizeMB"] = self.ram_cache_size_mb
         self.stat["nvmCacheSizeMB"] = self.nvm_cache_size_mb
         self.stat["t1AllocSize"] = self.ram_alloc_size_byte
         self.stat["pageSizeBytes"] = self.page_size_byte
-        self.stat["inputQueueSize"] = self.input_queue_size
-        self.stat["processorThreadCount"] = self.processor_thread_count
-        self.stat["scaleIAT"] = self.iat_scale_factor 
-        self.stat["hmrc1"] = self.get_hmrc_1()
+
+        # does the output have all the performance stats? Is it complete? 
+        if self.is_output_complete():
+            self.full_output = True
+            self.stat["hmrc1"] = self.get_hmrc_1()
 
 
     def get_runtime(self):
@@ -88,7 +100,7 @@ class ExperimentOutput:
 
 
     def is_output_complete(self):
-        return "t2WriteLat_p100_us" in self.stat
+        return "t2WriteLat_p100_us" in self.stat and "t2GetCount" in self.stat and "inputQueueSize" in self.stat
 
 
     def get_block_req_per_second(self):
@@ -140,6 +152,7 @@ class ExperimentOutput:
 
 
     def get_nvm_usage(self):
+        # TODO: get the NVM usage 
         nvm_usage = 0.0 
         if self.nvm_cache_size_mb > 0:
             t2_count = self.stat["t2Size"]
@@ -149,12 +162,16 @@ class ExperimentOutput:
 
 
     def get_t2_hit_count(self):
-        return self.stat["t2GetCount"]*self.get_t2_hit_rate()/100
+        return self.stat['t2GetCount'] * self.get_t2_hit_rate()/100.0
 
 
     def get_hmrc_1(self, page_size=4096):
         t2_hit_count = self.get_t2_hit_count()
-        t2_miss_count = self.stat["t2GetCount"] - t2_hit_count
+        try:
+            t2_miss_count = self.stat['t2GetCount'] - t2_hit_count
+        except:
+            t2_miss_count = 0 
+            print(self.stat)
         t2_hit_bytes = t2_hit_count * page_size 
         t2_miss_bytes = t2_miss_count * page_size 
         write_bytes = self.stat["backingWriteIORequested_byte"]
@@ -203,25 +220,19 @@ class ExperimentOutput:
         pass 
 
 
-
-
     def get_row(self):
         return self.stat 
-
-    
-    def base_sanity_check(self):
-        return "blockReqCount" in self.stat and "blockWriteSlat_avg_ns" in self.stat and "blockReadSlat_avg_ns" in self.stat 
 
 
     def __str__(self):
         repr_str = "ExperimentOutput:Size[T1/T2]={},{}, HR(%)[T1/T2]={:3.1f},{:3.1f}, MEANSLAT(ms)[R/W]={:3.2f},{:3.2f},{:3.2f},{:3.2f} BANDWIDTH={:3.2f}".format(
-                                                    self.get_ram_size(), 
-                                                    self.get_nvm_size(), 
-                                                    self.get_t1_hit_rate(), 
-                                                    self.get_t2_hit_rate(),
-                                                    self.get_percentile_read_slat("avg")/1e6,
-                                                    self.get_percentile_write_slat("avg")/1e6,
-                                                    self.get_percentile_read_slat("p99")/1e6,
-                                                    self.get_percentile_write_slat("p99")/1e6,
-                                                    self.get_bandwidth()/1e6)
+                                self.get_ram_size(), 
+                                self.get_nvm_size(), 
+                                self.get_t1_hit_rate(), 
+                                self.get_t2_hit_rate(),
+                                self.get_percentile_read_slat("avg")/1e6,
+                                self.get_percentile_write_slat("avg")/1e6,
+                                self.get_percentile_read_slat("p99")/1e6,
+                                self.get_percentile_write_slat("p99")/1e6,
+                                self.get_bandwidth()/1e6)
         return repr_str

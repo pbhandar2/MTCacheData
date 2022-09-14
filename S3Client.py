@@ -10,14 +10,21 @@ class S3Client:
                     aws_access_key_id=ACCESS_KEY,
                     aws_secret_access_key=SECRET_KEY)
         self.bucket_name = "mtcachedata"
-        self.key_prefix = "output/"
-        self.data_dir = pathlib.Path("./data")
+        self.key_prefix = "output_dump"
+        self.data_dir = pathlib.Path("./output_dump")
+        self.data = self.get_keys()
         assert self.data_dir.exists()
 
 
     def get_keys(self):
-        response = self.s3.list_objects_v2(Bucket=self.bucket_name, Prefix=self.key_prefix)
-        return response["Contents"]
+        paginator = self.s3.get_paginator('list_objects_v2')
+        pages = paginator.paginate(Bucket=self.bucket_name, Prefix=self.key_prefix)
+        key_list = []
+        for page in pages:
+            for obj in page['Contents']:
+                key_list.append(obj)
+        
+        return key_list
 
 
     def get_key_count(self, key):
@@ -33,22 +40,28 @@ class S3Client:
 
 
     def sync(self):
+        update_count = 0 
         # sync the local directory to data in S3 bucket 
-        print("Sync")
-        for entry in self.data['Contents']:
+        for entry in self.data:
             key = entry['Key']
+            size = entry['Size']
             split_key = key.split("/")
-            if len(split_key) > 4:
-                data_path = self.data_dir.joinpath("/".join(split_key[1:]))
-                if data_path.parent.exists():
-                    if not data_path.exists():
-                        self.download(key, str(data_path.resolve()))
-                    else:
-                        # print("Key {} in path {} exists!".format(key, data_path))
-                        pass 
-                else:
-                    data_path.parent.mkdir(parents=True, exist_ok=True)
+            data_path = self.data_dir.joinpath("/".join(split_key[1:]))
+            if data_path.parent.exists():
+                if not data_path.exists():
+                    print("Key {} in path {} does not exist!".format(key, data_path))
                     self.download(key, str(data_path.resolve()))
+                    update_count += 1
+                else:
+                    print("This size of value at key {} changed".format(key))
+                    file_size = data_path.stat().st_size
+                    if file_size < size:
+                        self.download(key, str(data_path.resolve()))
+            else:
+                data_path.parent.mkdir(parents=True, exist_ok=True)
+                self.download(key, str(data_path.resolve()))
+
+        print("Updated: {}".format(update_count))
 
 
     def delete(self, key):

@@ -2,4 +2,6 @@ data
 output_dump 
 sync.sh
 config.json 
+__pycache__/
+*.pyc 
 
