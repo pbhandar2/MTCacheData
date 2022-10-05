@@ -3,7 +3,7 @@ from collections import defaultdict
 
 
 class Status:
-    def __init__(self, data_dir="./output_dump"):
+    def __init__(self, data_dir=pathlib.Path.home().joinpath("mtdata")):
         self.data_dir = pathlib.Path(data_dir)
         self.machine_count = defaultdict(int)
         self._load()

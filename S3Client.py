@@ -11,7 +11,7 @@ class S3Client:
                     aws_secret_access_key=SECRET_KEY)
         self.bucket_name = "mtcachedata"
         self.key_prefix = "output_dump"
-        self.data_dir = pathlib.Path("./output_dump")
+        self.data_dir = pathlib.Path.home().joinpath("mtdata")
         self.data = self.get_keys()
         assert self.data_dir.exists()
 
@@ -53,10 +53,11 @@ class S3Client:
                     self.download(key, str(data_path.resolve()))
                     update_count += 1
                 else:
-                    print("This size of value at key {} changed".format(key))
                     file_size = data_path.stat().st_size
-                    if file_size < size:
+                    if file_size < size and size > 2000:
+                        print("This size of value at key {} changed".format(key))
                         self.download(key, str(data_path.resolve()))
+                        update_count += 1
             else:
                 data_path.parent.mkdir(parents=True, exist_ok=True)
                 self.download(key, str(data_path.resolve()))
